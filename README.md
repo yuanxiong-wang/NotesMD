@@ -1,10 +1,10 @@
 # NotesMD
 
-给 Apple 备忘录用的 Markdown 扩展。安装之后，写作界面仍然是 **备忘录**，资料仍然保存在原来的 iCloud / 本机 / IMAP 账户里。插件不另建数据库，也不要求迁移旧笔记。以后不用了，原来的笔记也不会消失；同步、协作、iPhone / iPad 体验都还在。
+給 Apple 備忘錄用的 Markdown 擴充功能。安裝之後，寫作介面仍然是 **備忘錄**，資料仍然保存在原來的 iCloud / 本機 / IMAP 帳戶裡。外掛不另建資料庫，也不要求遷移舊筆記。以後不用了，原來的筆記也不會消失；同步、協作、iPhone / iPad 體驗都還在。
 
-它借助辅助功能权限和 Apple Events，判断当前打开的是哪篇笔记、光标在哪里、选中了哪段文字，然后把工具栏和命令面板放在备忘录旁边。操作结束后，格式和文字写回原来的笔记。感觉接近浏览器扩展，只不过这次被扩展的是一个没有插件系统的 Mac 原生 App。
+它藉助輔助使用權限和 Apple Events，判斷目前開啟的是哪篇筆記、游標在哪裡、選取了哪段文字，然後把工具列和命令面板放在備忘錄旁邊。操作結束後，格式和文字寫回原來的筆記。感覺接近瀏覽器擴充功能，只不過這次被擴充的是一個沒有外掛系統的 Mac 原生 App。
 
-macOS 26 的备忘录已经能导入 / 导出 Markdown 文件。NotesMD 补的是 **边写边用 Markdown**。
+macOS 26 的備忘錄已經能匯入 / 匯出 Markdown 檔案。NotesMD 補的是 **邊寫邊用 Markdown**。
 
 ---
 
@@ -79,7 +79,7 @@ Quit NotesMD and delete `NotesMD.app`. Existing notes are untouched.
 
 - `Sources/NotesMDCore` — Markdown ↔ Notes HTML, command planner
 - `Sources/NotesMD` — overlay UI, Accessibility, Apple Events
-- `Tests` — converter tests
+- `Sources/NotesMDCheck` — lightweight self-checks run by `make test`
 
 ```bash
 make test
