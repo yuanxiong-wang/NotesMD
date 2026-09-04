@@ -9,7 +9,6 @@ final class AppState: ObservableObject {
     @Published var notesRunning = false
     @Published var notesFrontmost = false
     @Published var currentNote: NoteRef?
-    @Published var selectedText = ""
     @Published var markdownPreview = ""
     @Published var toolbarVisible = true
     @Published var paletteVisible = false
@@ -24,32 +23,22 @@ final class AppState: ObservableObject {
     @Published var noteIndex: [NoteHit] = []
     @Published var templates: [NoteHit] = []
     @Published var isIndexing = false
-    @Published var selectionBounds: CGRect?
-    @Published var caretAnchor: CGRect?
     @Published var slashNeedsConsume = false
     @Published var status = "Waiting for Notes"
     @Published var errorMessage: String?
     @Published var lastAction = ""
+    var onOverlayTick: (() -> Void)?
 
     let hotkeys = HotkeyMonitor()
     let typing = TypingMonitor()
     private var timer: Timer?
+    private var previewTimer: Timer?
     private var lastBodyStamp = ""
     private var lastIndexAt: Date?
     private var lastPeekAt = Date.distantPast
     private var lastPermissionCheck = Date.distantPast
-
-    var showsFollowUI: Bool {
-        notesRunning
-            && notesFrontmost
-            && accessibilityTrusted
-            && hasSelection
-            && !paletteVisible && !slashVisible && !quickOpenVisible && !onboardingVisible && !templatePickerVisible
-    }
-
-    var hasSelection: Bool {
-        !selectedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
+    private var lastPreviewHTML = ""
+    private var previewRefreshInFlight = false
 
     var isCapturingKeys: Bool {
         paletteVisible || slashVisible || quickOpenVisible || templatePickerVisible
@@ -62,19 +51,19 @@ final class AppState: ObservableObject {
         }
         hotkeys.onPalette = { [weak self] in self?.togglePalette() }
         hotkeys.onSlash = { [weak self] in self?.toggleSlash() }
-        hotkeys.onToolbar = { [weak self] in self?.toolbarVisible.toggle() }
+        hotkeys.onToolbar = { [weak self] in self?.toggleToolbar() }
         hotkeys.onQuickOpen = { [weak self] in self?.toggleQuickOpen() }
         hotkeys.capturingKeys = { [weak self] in self?.isCapturingKeys == true }
         hotkeys.start()
 
         typing.onPalette = { [weak self] in self?.togglePalette() }
         typing.onSlash = { [weak self] in self?.toggleSlash() }
-        typing.onToolbar = { [weak self] in self?.toolbarVisible.toggle() }
+        typing.onToolbar = { [weak self] in self?.toggleToolbar() }
         typing.onQuickOpen = { [weak self] in self?.toggleQuickOpen() }
         typing.start()
         syncInputFlags()
 
-        timer = Timer.scheduledTimer(withTimeInterval: 0.4, repeats: true) { [weak self] _ in
+        timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 self?.tick()
             }
@@ -115,9 +104,12 @@ final class AppState: ObservableObject {
 
     func tick() {
         let now = Date()
-        notesRunning = NotesBridge.isRunning
-        notesFrontmost = NSWorkspace.shared.frontmostApplication?.bundleIdentifier == NotesBridge.bundleID
-            || NSWorkspace.shared.frontmostApplication?.bundleIdentifier == Bundle.main.bundleIdentifier
+        publish(\.notesRunning, NotesBridge.isRunning)
+        let front = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+        publish(
+            \.notesFrontmost,
+            front == NotesBridge.bundleID || front == Bundle.main.bundleIdentifier
+        )
         syncInputFlags()
 
         if now.timeIntervalSince(lastPermissionCheck) > 5 {
@@ -126,55 +118,86 @@ final class AppState: ObservableObject {
         }
 
         guard notesRunning else {
-            currentNote = nil
-            selectedText = ""
-            selectionBounds = nil
-            caretAnchor = nil
-            status = "Open Notes to begin"
+            publish(\.currentNote, nil)
+            publish(\.status, "Open Notes to begin")
             return
         }
 
         if typing.isTyping && !isCapturingKeys {
+            if previewVisible { refreshPreviewAsync() }
             return
         }
 
-        if accessibilityTrusted {
-            AXBridge.enableEnhancedAccessibility()
-            let selected = AXBridge.selectedTextQuick()
-            selectedText = selected
-            if selected.isEmpty {
-                selectionBounds = nil
-                caretAnchor = nil
-            } else {
-                selectionBounds = AXBridge.selectionBounds()
-            }
-        }
-
-        guard now.timeIntervalSince(lastPeekAt) > 1.8 else { return }
+        let peekInterval: TimeInterval = (previewVisible || tocVisible) ? 2 : 8
+        guard now.timeIntervalSince(lastPeekAt) > peekInterval else { return }
         lastPeekAt = now
 
         do {
             let note = try NotesBridge.peekSelection()
-            currentNote = note
-            status = "\(note.folder) · \(note.name)"
-            if (previewVisible || tocVisible), lastBodyStamp != note.id + note.modified {
+            publish(\.currentNote, note)
+            publish(\.status, "\(note.folder) · \(note.name)")
+            if previewVisible { refreshPreviewAsync() }
+            if tocVisible, lastBodyStamp != note.id + note.modified {
                 lastBodyStamp = note.id + note.modified
-                if previewVisible { refreshPreview() }
-                if tocVisible { refreshTOC() }
+                refreshTOC()
             }
         } catch NotesBridgeError.noSelection {
-            currentNote = nil
-            status = "Select a note in Notes"
+            publish(\.currentNote, nil)
+            publish(\.status, "Select a note in Notes")
         } catch NotesBridgeError.timeout {
-            status = "Notes is busy…"
+            publish(\.status, "Notes is busy…")
         } catch {
-            status = error.localizedDescription
+            publish(\.status, error.localizedDescription)
+        }
+    }
+
+    private func publish<T: Equatable>(_ keyPath: ReferenceWritableKeyPath<AppState, T>, _ value: T) {
+        if self[keyPath: keyPath] != value {
+            self[keyPath: keyPath] = value
         }
     }
 
     func syncInputFlags() {
         typing.setPaletteCapturing(isCapturingKeys)
         typing.setNotesFrontmost(notesFrontmost)
+    }
+
+    func overlayNow() {
+        onOverlayTick?()
+    }
+
+    func hidePalette() {
+        paletteVisible = false
+        syncInputFlags()
+        overlayNow()
+    }
+
+    func hideSlash() {
+        slashVisible = false
+        syncInputFlags()
+        overlayNow()
+    }
+
+    func hideQuickOpen() {
+        quickOpenVisible = false
+        overlayNow()
+    }
+
+    func hidePreview() {
+        guard previewVisible else { return }
+        previewVisible = false
+        stopLivePreview()
+        overlayNow()
+    }
+
+    func hideTOC() {
+        tocVisible = false
+        overlayNow()
+    }
+
+    func hideTemplates() {
+        templatePickerVisible = false
+        overlayNow()
     }
 
     func togglePalette() {
@@ -185,6 +208,7 @@ final class AppState: ObservableObject {
             NSApp.activate()
         }
         syncInputFlags()
+        overlayNow()
     }
 
     func toggleQuickOpen() {
@@ -196,15 +220,38 @@ final class AppState: ObservableObject {
             refreshNoteIndexIfNeeded()
         }
         syncInputFlags()
+        overlayNow()
     }
 
     func toggleSlash() {
         if slashVisible {
             slashVisible = false
             syncInputFlags()
+            overlayNow()
             return
         }
         openSlash(query: "", consumeTypedSlash: false)
+    }
+
+    func toggleToolbar() {
+        toolbarVisible.toggle()
+        overlayNow()
+    }
+
+    func togglePreview() {
+        previewVisible.toggle()
+        if previewVisible {
+            startLivePreview()
+        } else {
+            stopLivePreview()
+        }
+        overlayNow()
+    }
+
+    func toggleTOC() {
+        tocVisible.toggle()
+        if tocVisible { refreshTOC() }
+        overlayNow()
     }
 
     func openSlash(query: String, consumeTypedSlash: Bool = false) {
@@ -215,6 +262,7 @@ final class AppState: ObservableObject {
         quickOpenVisible = false
         NSApp.activate()
         syncInputFlags()
+        overlayNow()
     }
 
     func applyParagraph(_ style: NativeParagraphStyle) {
@@ -246,10 +294,9 @@ final class AppState: ObservableObject {
         case .copyMarkdown:
             copyMarkdown()
         case .preview:
-            previewVisible.toggle()
-            if previewVisible { refreshPreview() }
+            togglePreview()
         case .toggleToolbar:
-            toolbarVisible.toggle()
+            toggleToolbar()
         case .permissions:
             onboardingVisible = true
         case .quickOpen:
@@ -260,6 +307,7 @@ final class AppState: ObservableObject {
             refreshTOC()
         }
         syncInputFlags()
+        overlayNow()
     }
 
     func runSlash(_ command: SlashCommand) {
@@ -286,12 +334,14 @@ final class AppState: ObservableObject {
             refreshNoteIndexIfNeeded()
             NSApp.activate()
         }
+        overlayNow()
     }
 
     func expandMarkdown() {
+        let selected = AXBridge.selectedText()
         let target: String
-        if !selectedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            target = selectedText
+        if !selected.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            target = selected
         } else if let note = currentNote {
             do {
                 target = try NotesBridge.plaintext(of: note.id)
@@ -314,7 +364,7 @@ final class AppState: ObservableObject {
     }
 
     func convertSelection() {
-        let text = selectedText
+        let text = AXBridge.selectedText()
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             status = "Select some markdown first"
             return
@@ -362,14 +412,65 @@ final class AppState: ObservableObject {
     }
 
     func refreshPreview() {
+        refreshPreviewAsync()
+    }
+
+    private func startLivePreview() {
+        stopLivePreview()
+        lastPreviewHTML = ""
+        if currentNote == nil, notesRunning {
+            currentNote = try? NotesBridge.peekSelection()
+        }
+        refreshPreviewAsync()
+        previewTimer = Timer.scheduledTimer(withTimeInterval: 0.7, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                self?.refreshPreviewAsync()
+            }
+        }
+    }
+
+    private func stopLivePreview() {
+        previewTimer?.invalidate()
+        previewTimer = nil
+        previewRefreshInFlight = false
+    }
+
+    private func refreshPreviewAsync() {
+        guard previewVisible else { return }
         guard let note = currentNote else {
-            markdownPreview = ""
+            if !markdownPreview.isEmpty { markdownPreview = "" }
             return
         }
-        do {
-            markdownPreview = try NotesBridge.copyNoteAsMarkdown(note)
-        } catch {
-            markdownPreview = error.localizedDescription
+        guard !previewRefreshInFlight else { return }
+        previewRefreshInFlight = true
+        let previousHTML = lastPreviewHTML
+        let locked = note.passwordProtected
+        let noteID = note.id
+        DispatchQueue.global(qos: .utility).async {
+            let html: String
+            do {
+                html = try NotesBridge.body(of: noteID, timeout: 4)
+            } catch {
+                Task { @MainActor in
+                    self.previewRefreshInFlight = false
+                }
+                return
+            }
+            if html == previousHTML {
+                Task { @MainActor in
+                    self.previewRefreshInFlight = false
+                }
+                return
+            }
+            let markdown = locked ? "This note is locked." : NotesMarkdown.htmlToMarkdown(html)
+            Task { @MainActor in
+                self.previewRefreshInFlight = false
+                guard self.previewVisible else { return }
+                self.lastPreviewHTML = html
+                if markdown != self.markdownPreview {
+                    self.markdownPreview = markdown
+                }
+            }
         }
     }
 
@@ -390,6 +491,7 @@ final class AppState: ObservableObject {
         tocVisible = false
         FormatActions.findInNote(heading.text)
         status = heading.text
+        overlayNow()
     }
 
     func openNote(_ hit: NoteHit) {
@@ -400,6 +502,7 @@ final class AppState: ObservableObject {
         } catch {
             present(error)
         }
+        overlayNow()
     }
 
     func insertTemplate(_ hit: NoteHit) {
@@ -411,6 +514,7 @@ final class AppState: ObservableObject {
         } catch {
             present(error)
         }
+        overlayNow()
     }
 
     func insertDateTime() {

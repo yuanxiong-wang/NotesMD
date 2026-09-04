@@ -19,7 +19,7 @@ struct PaletteView: View {
                     placeholder: "Run a command…  输入命令",
                     onMove: moveSelection,
                     onSubmit: runSelected,
-                    onCancel: { state.paletteVisible = false }
+                    onCancel: { state.hidePalette() }
                 )
                 Text("esc")
                     .font(.caption2)
@@ -55,7 +55,7 @@ struct PaletteView: View {
             case .up: moveSelection(-1)
             case .down: moveSelection(1)
             case .submit: runSelected()
-            case .cancel: state.paletteVisible = false
+            case .cancel: state.hidePalette()
             }
         }
         .onChange(of: query) { _, _ in selected = 0 }

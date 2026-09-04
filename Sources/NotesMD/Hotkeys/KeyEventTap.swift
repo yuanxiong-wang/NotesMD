@@ -12,7 +12,7 @@ final class KeyEventTap {
     /// Written from the main thread, read from the tap callback. Do not hop to main to inspect these.
     var paletteCapturing = false
     var notesFrontmost = false
-    var lastEventUptime: TimeInterval = 0
+    var lastEditUptime: TimeInterval = 0
 
     private var port: CFMachPort?
     private var source: CFRunLoopSource?
@@ -39,11 +39,11 @@ final class KeyEventTap {
                 guard type == .keyDown else {
                     return Unmanaged.passUnretained(event)
                 }
-                tap.lastEventUptime = ProcessInfo.processInfo.systemUptime
 
                 let flags = event.flags
                 let command = flags.contains(.maskCommand)
                 if !command && !tap.paletteCapturing {
+                    tap.lastEditUptime = ProcessInfo.processInfo.systemUptime
                     return Unmanaged.passUnretained(event)
                 }
 

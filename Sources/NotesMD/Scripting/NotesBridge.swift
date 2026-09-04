@@ -112,13 +112,13 @@ enum NotesBridge {
         )
     }
 
-    static func body(of id: String) throws -> String {
+    static func body(of id: String, timeout: TimeInterval = 15) throws -> String {
         let source = """
         tell application "Notes"
             return body of note id "\(escapeAS(id))"
         end tell
         """
-        return try runScript(source, timeout: 15)
+        return try runScript(source, timeout: timeout)
     }
 
     static func plaintext(of id: String) throws -> String {
@@ -152,9 +152,9 @@ enum NotesBridge {
         _ = try ProcessRunner.osascriptFile(scriptURL, timeout: 15)
     }
 
-    static func copyNoteAsMarkdown(_ note: NoteRef) throws -> String {
+    static func copyNoteAsMarkdown(_ note: NoteRef, timeout: TimeInterval = 15) throws -> String {
         if note.passwordProtected { throw NotesBridgeError.locked }
-        let html = try body(of: note.id)
+        let html = try body(of: note.id, timeout: timeout)
         return NotesMarkdown.htmlToMarkdown(html)
     }
 

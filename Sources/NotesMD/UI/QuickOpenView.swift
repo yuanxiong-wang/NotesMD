@@ -23,7 +23,7 @@ struct QuickOpenView: View {
                     placeholder: "Search notes and folders…  搜索笔记",
                     onMove: moveSelection,
                     onSubmit: openSelected,
-                    onCancel: { state.quickOpenVisible = false }
+                    onCancel: { state.hideQuickOpen() }
                 )
                 if state.isIndexing {
                     ProgressView().controlSize(.small)
@@ -77,7 +77,7 @@ struct QuickOpenView: View {
             case .up: moveSelection(-1)
             case .down: moveSelection(1)
             case .submit: openSelected()
-            case .cancel: state.quickOpenVisible = false
+            case .cancel: state.hideQuickOpen()
             }
         }
         .onChange(of: query) { _, _ in selected = 0 }

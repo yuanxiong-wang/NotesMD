@@ -26,17 +26,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         overlay = OverlayController(state: state)
+        state.onOverlayTick = { [weak overlay] in
+            overlay?.tick()
+        }
         setupStatusItem()
         state.start()
         if NotesLaunchPairing.isEnabled {
             NotesLaunchPairing.installAgent()
         }
         observeNotesLifecycle()
-        followTimer = Timer.scheduledTimer(withTimeInterval: 0.35, repeats: true) { [weak self] _ in
+        followTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 self?.overlay.tick()
             }
         }
+        overlay.tick()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -114,11 +118,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func openPalette() { state.togglePalette() }
     @objc private func openSlash() { state.toggleSlash() }
     @objc private func openQuickOpen() { state.toggleQuickOpen() }
-    @objc private func openTOC() {
-        state.tocVisible.toggle()
-        if state.tocVisible { state.refreshTOC() }
-    }
-    @objc private func toggleToolbar() { state.toolbarVisible.toggle() }
+    @objc private func openTOC() { state.toggleTOC() }
+    @objc private func toggleToolbar() { state.toggleToolbar() }
     @objc private func convertSelection() { state.convertSelection() }
     @objc private func convertNote() { state.convertWholeNote() }
     @objc private func copyMarkdown() { state.copyMarkdown() }

@@ -21,7 +21,7 @@ struct SlashView: View {
                     fontSize: 15,
                     onMove: moveSelection,
                     onSubmit: runSelected,
-                    onCancel: { state.slashVisible = false }
+                    onCancel: { state.hideSlash() }
                 )
             }
             .padding(10)
@@ -64,7 +64,7 @@ struct SlashView: View {
             case .up: moveSelection(-1)
             case .down: moveSelection(1)
             case .submit: runSelected()
-            case .cancel: state.slashVisible = false
+            case .cancel: state.hideSlash()
             }
         }
         .onChange(of: state.slashQuery) { _, _ in selected = 0 }

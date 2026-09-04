@@ -18,7 +18,7 @@ struct TOCView: View {
                 .buttonStyle(.plain)
                 .help("Refresh")
                 Button {
-                    state.tocVisible = false
+                    state.hideTOC()
                 } label: {
                     Image(systemName: "xmark.circle.fill")
                         .foregroundStyle(.secondary)
@@ -55,9 +55,9 @@ struct TOCView: View {
             }
         }
         .frame(width: 260, height: 320)
-        .background(.ultraThinMaterial)
+        .background(Color.clear)
         .onAppear { state.refreshTOC() }
-        .onExitCommand { state.tocVisible = false }
+        .onExitCommand { state.hideTOC() }
     }
 }
 
@@ -71,7 +71,7 @@ struct TemplatePickerView: View {
                     .font(.headline)
                 Spacer()
                 Button {
-                    state.templatePickerVisible = false
+                    state.hideTemplates()
                 } label: {
                     Image(systemName: "xmark.circle.fill")
                         .foregroundStyle(.secondary)
@@ -97,6 +97,6 @@ struct TemplatePickerView: View {
         .frame(width: 320, height: 280)
         .background(.ultraThickMaterial)
         .onAppear { state.refreshNoteIndexIfNeeded() }
-        .onExitCommand { state.templatePickerVisible = false }
+        .onExitCommand { state.hideTemplates() }
     }
 }

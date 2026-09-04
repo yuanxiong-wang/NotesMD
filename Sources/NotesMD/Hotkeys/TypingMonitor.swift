@@ -31,6 +31,6 @@ final class TypingMonitor {
     }
 
     var isTyping: Bool {
-        ProcessInfo.processInfo.systemUptime - tap.lastEventUptime < 0.85
+        ProcessInfo.processInfo.systemUptime - tap.lastEditUptime < 2.0
     }
 }
