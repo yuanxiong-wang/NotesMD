@@ -81,7 +81,15 @@ struct TemplatePickerView: View {
             }
             .padding(10)
             Divider()
-            if state.templates.isEmpty {
+            if state.isIndexing {
+                ProgressView("Loading templates…")
+                    .padding(12)
+            } else if let error = state.noteIndexError, state.templates.isEmpty {
+                Text(error)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(12)
+            } else if state.templates.isEmpty {
                 Text("Create a folder named Templates or 模板 in Notes, then put one note per template inside it.")
                     .font(.caption)
                     .foregroundStyle(.secondary)

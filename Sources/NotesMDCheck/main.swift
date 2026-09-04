@@ -70,6 +70,14 @@ enum NotesMDCheck {
         expect("table round-trip sep", tableBack.contains("| --- | --- |"), tableBack)
         expect("table round-trip rows", tableBack.contains("| Apples | 3 |") && tableBack.contains("| Pears | 2 |"), tableBack)
 
+        let emptyEdgeTable = NotesMarkdown.markdownToHTML("| | Middle | |\n| --- | --- | --- |\n| | Value | |")
+        expect(
+            "table preserves empty edge cells",
+            emptyEdgeTable.contains("<tr><th></th><th>Middle</th><th></th></tr>")
+                && emptyEdgeTable.contains("<tr><td></td><td>Value</td><td></td></tr>"),
+            emptyEdgeTable
+        )
+
         let notesTable = """
         <div><table>
         <tr><td><div>Name</div></td><td><div>Qty</div></td></tr>
@@ -82,6 +90,8 @@ enum NotesMDCheck {
         expect("notes table cell", fromNotes.contains("| Apples | **3** |"), fromNotes)
         let notesRound = NotesMarkdown.htmlToMarkdown(NotesMarkdown.markdownToHTML(fromNotes))
         expect("notes table round-trip", notesRound.contains("| Name | Qty |") && notesRound.contains("| Apples | **3** |"), notesRound)
+        expect("native table attachment allowed", NotesMarkdown.hasOnlyTableAttachments(inHTML: notesTable, attachmentCount: 1))
+        expect("mixed attachments blocked", !NotesMarkdown.hasOnlyTableAttachments(inHTML: notesTable, attachmentCount: 2))
 
         if failed == 0 {
             print("All checks passed.")

@@ -134,6 +134,14 @@ public enum NotesMarkdown {
         return HTMLMarkdownRenderer.render(tokens)
     }
 
+    public static func hasOnlyTableAttachments(inHTML html: String, attachmentCount: Int) -> Bool {
+        guard attachmentCount > 0 else { return false }
+        let tableCount = HTMLTokenizer.tokenize(html).reduce(into: 0) { count, token in
+            if case .open(name: "table", attrs: _) = token { count += 1 }
+        }
+        return tableCount == attachmentCount
+    }
+
     public static func escapeHTML(_ text: String) -> String {
         text
             .replacingOccurrences(of: "&", with: "&amp;")
@@ -244,13 +252,11 @@ public enum NotesMarkdown {
                     i += 1
                     continue
                 }
-                let cells = t.split(separator: "|", omittingEmptySubsequences: false)
+                var cells = t.split(separator: "|", omittingEmptySubsequences: false)
                     .map { $0.trimmingCharacters(in: .whitespaces) }
-                let trimmedCells = Array(cells.drop(while: { $0.isEmpty }))
-                    .reversed()
-                    .drop(while: { $0.isEmpty })
-                    .reversed()
-                rows.append(Array(trimmedCells))
+                if t.hasPrefix("|"), cells.first == "" { cells.removeFirst() }
+                if t.hasSuffix("|"), cells.last == "" { cells.removeLast() }
+                rows.append(cells)
                 i += 1
             } else {
                 break

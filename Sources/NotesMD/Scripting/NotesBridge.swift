@@ -30,7 +30,7 @@ enum NotesBridgeError: LocalizedError {
         case .notesNotRunning: return "Notes is not running."
         case .noSelection: return "No note is selected in Notes."
         case .locked: return "This note is locked."
-        case .hasAttachments: return "This note has attachments. Convert a selection instead of replacing the whole note."
+        case .hasAttachments: return "This note has a non-table attachment. Convert a selection instead of replacing the whole note."
         case .scripting(let message): return message
         case .timeout: return "Notes did not respond in time."
         }
@@ -172,36 +172,24 @@ enum NotesBridge {
         guard isRunning else { throw NotesBridgeError.notesNotRunning }
         let source = """
         tell application "Notes"
-            set AppleScript's text item delimiters to character id 31
-            set idText to (id of every note) as text
-            set nameText to (name of every note) as text
-            set folderText to ""
-            try
-                set folderText to (name of container of every note) as text
-            on error
-                set folderText to ""
-            end try
-            set AppleScript's text item delimiters to character id 29
-            return idText & (character id 29) & nameText & (character id 29) & folderText
+            set rowDelimiter to character id 29
+            set fieldDelimiter to character id 30
+            set resultText to ""
+            repeat with notesmdFolder in every folder
+                set folderName to name of notesmdFolder
+                repeat with notesmdNote in notes of notesmdFolder
+                    set resultText to resultText & (id of notesmdNote) & fieldDelimiter & (name of notesmdNote) & fieldDelimiter & folderName & rowDelimiter
+                end repeat
+            end repeat
+            return resultText
         end tell
         """
         let output = try runScript(source, timeout: 25)
-        let chunks = output.components(separatedBy: "\u{1d}")
-        guard chunks.count >= 2 else { return [] }
-        let ids = chunks[0].components(separatedBy: "\u{1f}")
-        let names = chunks[1].components(separatedBy: "\u{1f}")
-        let folders = chunks.count >= 3 ? chunks[2].components(separatedBy: "\u{1f}") : []
-        let count = min(ids.count, names.count)
-        var hits: [NoteHit] = []
-        hits.reserveCapacity(count)
-        for i in 0..<count {
-            let id = ids[i].trimmingCharacters(in: .whitespacesAndNewlines)
-            let name = names[i].trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !id.isEmpty else { continue }
-            let folder = i < folders.count ? folders[i].trimmingCharacters(in: .whitespacesAndNewlines) : ""
-            hits.append(NoteHit(id: id, name: name, folder: folder))
+        return output.components(separatedBy: "\u{1d}").compactMap { row in
+            let fields = row.components(separatedBy: "\u{1e}")
+            guard fields.count == 3, !fields[0].isEmpty else { return nil }
+            return NoteHit(id: fields[0], name: fields[1], folder: fields[2])
         }
-        return hits
     }
 
     static func templates(from notes: [NoteHit]) -> [NoteHit] {
@@ -216,8 +204,19 @@ enum NotesBridge {
 
     static func prepareWholeNoteConversion(_ note: NoteRef) throws -> MarkdownConversion {
         if note.passwordProtected { throw NotesBridgeError.locked }
-        if note.attachmentCount > 0 { throw NotesBridgeError.hasAttachments }
-        let source = try plaintext(of: note.id)
+        let source: String
+        if note.attachmentCount > 0 {
+            let currentHTML = try body(of: note.id)
+            guard NotesMarkdown.hasOnlyTableAttachments(
+                inHTML: currentHTML,
+                attachmentCount: note.attachmentCount
+            ) else {
+                throw NotesBridgeError.hasAttachments
+            }
+            source = NotesMarkdown.htmlToMarkdown(currentHTML)
+        } else {
+            source = try plaintext(of: note.id)
+        }
         let html = NotesMarkdown.markdownToHTML(source)
         let preview = NotesMarkdown.htmlToMarkdown(html)
         return MarkdownConversion(source: source, html: html, preview: preview)

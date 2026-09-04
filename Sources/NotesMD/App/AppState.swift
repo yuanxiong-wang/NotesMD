@@ -24,6 +24,7 @@ final class AppState: ObservableObject {
     @Published var noteIndex: [NoteHit] = []
     @Published var templates: [NoteHit] = []
     @Published var isIndexing = false
+    @Published var noteIndexError: String?
     @Published var selectionBounds: CGRect?
     @Published var slashNeedsConsume = false
     @Published var status = "Waiting for Notes"
@@ -583,13 +584,23 @@ final class AppState: ObservableObject {
             return
         }
         isIndexing = true
+        noteIndexError = nil
         DispatchQueue.global(qos: .userInitiated).async {
-            let hits = (try? NotesBridge.listNotes()) ?? []
-            Task { @MainActor in
-                self.noteIndex = hits
-                self.templates = NotesBridge.templates(from: hits)
-                self.lastIndexAt = Date()
-                self.isIndexing = false
+            do {
+                let hits = try NotesBridge.listNotes()
+                Task { @MainActor in
+                    self.noteIndex = hits
+                    self.templates = NotesBridge.templates(from: hits)
+                    self.noteIndexError = nil
+                    self.lastIndexAt = Date()
+                    self.isIndexing = false
+                }
+            } catch {
+                let message = error.localizedDescription
+                Task { @MainActor in
+                    self.noteIndexError = message
+                    self.isIndexing = false
+                }
             }
         }
     }
