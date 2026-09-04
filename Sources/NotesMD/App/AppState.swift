@@ -9,6 +9,7 @@ final class AppState: ObservableObject {
     @Published var notesRunning = false
     @Published var notesFrontmost = false
     @Published var currentNote: NoteRef?
+    @Published var selectedText = ""
     @Published var markdownPreview = ""
     @Published var toolbarVisible = true
     @Published var paletteVisible = false
@@ -23,6 +24,7 @@ final class AppState: ObservableObject {
     @Published var noteIndex: [NoteHit] = []
     @Published var templates: [NoteHit] = []
     @Published var isIndexing = false
+    @Published var selectionBounds: CGRect?
     @Published var slashNeedsConsume = false
     @Published var status = "Waiting for Notes"
     @Published var errorMessage: String?
@@ -39,6 +41,19 @@ final class AppState: ObservableObject {
     private var lastPermissionCheck = Date.distantPast
     private var lastPreviewHTML = ""
     private var previewRefreshInFlight = false
+    private var previewGeneration = 0
+
+    var showsFollowUI: Bool {
+        notesRunning
+            && notesFrontmost
+            && accessibilityTrusted
+            && hasSelection
+            && !paletteVisible && !slashVisible && !quickOpenVisible && !onboardingVisible && !templatePickerVisible
+    }
+
+    var hasSelection: Bool {
+        !selectedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
 
     var isCapturingKeys: Bool {
         paletteVisible || slashVisible || quickOpenVisible || templatePickerVisible
@@ -118,7 +133,9 @@ final class AppState: ObservableObject {
         }
 
         guard notesRunning else {
-            publish(\.currentNote, nil)
+            setCurrentNote(nil)
+            publish(\.selectedText, "")
+            publish(\.selectionBounds, nil)
             publish(\.status, "Open Notes to begin")
             return
         }
@@ -128,13 +145,24 @@ final class AppState: ObservableObject {
             return
         }
 
+        if accessibilityTrusted && notesFrontmost {
+            AXBridge.enableEnhancedAccessibility()
+            let selected = AXBridge.selectedTextQuick()
+            publish(\.selectedText, selected)
+            let bounds = selected.isEmpty ? nil : AXBridge.selectionBounds()
+            publish(\.selectionBounds, bounds)
+        } else {
+            publish(\.selectedText, "")
+            publish(\.selectionBounds, nil)
+        }
+
         let peekInterval: TimeInterval = (previewVisible || tocVisible) ? 2 : 8
         guard now.timeIntervalSince(lastPeekAt) > peekInterval else { return }
         lastPeekAt = now
 
         do {
             let note = try NotesBridge.peekSelection()
-            publish(\.currentNote, note)
+            setCurrentNote(note)
             publish(\.status, "\(note.folder) · \(note.name)")
             if previewVisible { refreshPreviewAsync() }
             if tocVisible, lastBodyStamp != note.id + note.modified {
@@ -142,12 +170,27 @@ final class AppState: ObservableObject {
                 refreshTOC()
             }
         } catch NotesBridgeError.noSelection {
-            publish(\.currentNote, nil)
+            setCurrentNote(nil)
+            publish(\.selectedText, "")
+            publish(\.selectionBounds, nil)
             publish(\.status, "Select a note in Notes")
         } catch NotesBridgeError.timeout {
             publish(\.status, "Notes is busy…")
         } catch {
             publish(\.status, error.localizedDescription)
+        }
+    }
+
+    private func setCurrentNote(_ note: NoteRef?) {
+        let previewChanged = currentNote?.id != note?.id
+            || currentNote?.passwordProtected != note?.passwordProtected
+        publish(\.currentNote, note)
+        guard previewChanged else { return }
+        previewGeneration &+= 1
+        previewRefreshInFlight = false
+        lastPreviewHTML = ""
+        if previewVisible, !markdownPreview.isEmpty {
+            markdownPreview = ""
         }
     }
 
@@ -419,7 +462,7 @@ final class AppState: ObservableObject {
         stopLivePreview()
         lastPreviewHTML = ""
         if currentNote == nil, notesRunning {
-            currentNote = try? NotesBridge.peekSelection()
+            setCurrentNote(try? NotesBridge.peekSelection())
         }
         refreshPreviewAsync()
         previewTimer = Timer.scheduledTimer(withTimeInterval: 0.7, repeats: true) { [weak self] _ in
@@ -432,6 +475,7 @@ final class AppState: ObservableObject {
     private func stopLivePreview() {
         previewTimer?.invalidate()
         previewTimer = nil
+        previewGeneration &+= 1
         previewRefreshInFlight = false
     }
 
@@ -441,31 +485,41 @@ final class AppState: ObservableObject {
             if !markdownPreview.isEmpty { markdownPreview = "" }
             return
         }
+        if note.passwordProtected {
+            lastPreviewHTML = ""
+            let message = NotesBridgeError.locked.localizedDescription
+            if markdownPreview != message { markdownPreview = message }
+            return
+        }
         guard !previewRefreshInFlight else { return }
         previewRefreshInFlight = true
-        let previousHTML = lastPreviewHTML
-        let locked = note.passwordProtected
+        let generation = previewGeneration
         let noteID = note.id
         DispatchQueue.global(qos: .utility).async {
             let html: String
             do {
                 html = try NotesBridge.body(of: noteID, timeout: 4)
             } catch {
+                let message = error.localizedDescription
                 Task { @MainActor in
+                    guard self.previewGeneration == generation,
+                          self.previewVisible,
+                          self.currentNote?.id == noteID else { return }
                     self.previewRefreshInFlight = false
+                    self.lastPreviewHTML = ""
+                    if self.markdownPreview != message {
+                        self.markdownPreview = message
+                    }
                 }
                 return
             }
-            if html == previousHTML {
-                Task { @MainActor in
-                    self.previewRefreshInFlight = false
-                }
-                return
-            }
-            let markdown = locked ? "This note is locked." : NotesMarkdown.htmlToMarkdown(html)
+            let markdown = NotesMarkdown.htmlToMarkdown(html)
             Task { @MainActor in
+                guard self.previewGeneration == generation,
+                      self.previewVisible,
+                      self.currentNote?.id == noteID else { return }
                 self.previewRefreshInFlight = false
-                guard self.previewVisible else { return }
+                guard html != self.lastPreviewHTML else { return }
                 self.lastPreviewHTML = html
                 if markdown != self.markdownPreview {
                     self.markdownPreview = markdown

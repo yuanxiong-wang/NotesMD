@@ -12,12 +12,12 @@ struct ToolbarView: View {
                 .padding(.bottom, 4)
             Divider().opacity(0.35)
             ScrollView(.vertical, showsIndicators: false) {
-                VStack(spacing: 6) {
+                VStack(spacing: 2) {
                     ForEach(buttonSpecs, id: \.id) { spec in
                         iconButton(spec)
                     }
                 }
-                .padding(.vertical, 8)
+                .padding(.vertical, 4)
             }
         }
         .padding(.vertical, 12)
@@ -28,7 +28,7 @@ struct ToolbarView: View {
 
     private var buttonSpecs: [ToolbarButton] {
         [
-            makeButton(id: "preview", symbol: "sidebar.right", title: "Markdown 預覽", action: {
+            makeButton(id: "preview", symbol: "eye", title: "Markdown 預覽", action: {
                 state.togglePreview()
             }),
             makeButton(id: "title", symbol: "textformat.size.larger", title: "標題", action: { state.run(cmd("title")) }),
@@ -64,6 +64,7 @@ struct ToolbarView: View {
         .buttonStyle(.plain)
         .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         .accessibilityLabel(item.title)
+        .help(item.title)
     }
 
     private func makeButton(

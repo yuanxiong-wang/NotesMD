@@ -11,6 +11,7 @@ final class OverlayController {
     private var tocPanel: NSPanel?
     private var previewPanel: NSPanel?
     private var templatePanel: NSPanel?
+    private var inlinePanel: NSPanel?
     private var onboardingWindow: NSWindow?
 
     private let chromeRadius: CGFloat = 16
@@ -18,11 +19,13 @@ final class OverlayController {
     init(state: AppState) {
         self.state = state
         buildToolbar()
+        inlinePanel = makeHUDPanel(size: NSSize(width: 360, height: 40))
+        inlinePanel?.contentView = NSHostingView(rootView: InlineToolbarView(state: state))
     }
 
     func tick() {
         let capturing = state.isCapturingKeys
-        let leaveChromeAlone = state.typing.isTyping && !capturing
+        let leaveChromeAlone = state.notesFrontmost && state.typing.isTyping && !capturing
 
         showKeyPanel(state.paletteVisible, panel: &palettePanel, size: NSSize(width: 520, height: 420)) {
             PaletteView(state: self.state)
@@ -36,15 +39,21 @@ final class OverlayController {
         showKeyPanel(state.templatePickerVisible, panel: &templatePanel, size: NSSize(width: 320, height: 280)) {
             TemplatePickerView(state: self.state)
         }
-        showOrHideHUD(state.tocVisible, panel: &tocPanel, size: NSSize(width: 260, height: 320), stacked: false) {
+        showOrHideHUD(state.tocVisible && state.notesFrontmost, panel: &tocPanel, size: NSSize(width: 260, height: 320), stacked: false) {
             TOCView(state: self.state)
         }
-        showOrHideHUD(state.previewVisible, panel: &previewPanel, size: NSSize(width: 280, height: 420), stacked: true) {
+        showOrHideHUD(state.previewVisible && state.notesFrontmost, panel: &previewPanel, size: NSSize(width: 280, height: 420), stacked: true) {
             MarkdownPreviewView(state: self.state)
         }
 
+        if capturing || state.typing.isTyping {
+            inlinePanel?.orderOut(nil)
+        } else {
+            positionInlineToolbar()
+        }
+
         if !leaveChromeAlone {
-            let shouldShowToolbar = state.toolbarVisible && state.notesRunning && !capturing
+            let shouldShowToolbar = state.toolbarVisible && state.notesRunning && state.notesFrontmost && !capturing
             if shouldShowToolbar {
                 followNotesWindow()
                 if toolbarPanel?.isVisible != true {
@@ -65,6 +74,28 @@ final class OverlayController {
                 NSApp.setActivationPolicy(.accessory)
             }
         }
+    }
+
+    private func positionInlineToolbar() {
+        guard state.showsFollowUI,
+              let bounds = state.selectionBounds,
+              bounds.width > 1,
+              bounds.height > 1 else {
+            inlinePanel?.orderOut(nil)
+            return
+        }
+        let size = NSSize(width: 360, height: 40)
+        var x = bounds.minX
+        var y = bounds.maxY + 8
+        if let screen = NSScreen.screens.first(where: { $0.frame.intersects(bounds) })?.visibleFrame
+            ?? NSScreen.main?.visibleFrame {
+            x = min(max(x, screen.minX + 8), screen.maxX - size.width - 8)
+            if y + size.height > screen.maxY - 8 {
+                y = max(screen.minY + 8, bounds.minY - size.height - 8)
+            }
+        }
+        inlinePanel?.setFrame(NSRect(x: x, y: y, width: size.width, height: size.height), display: true)
+        inlinePanel?.orderFrontRegardless()
     }
 
     private func showKeyPanel<V: View>(
