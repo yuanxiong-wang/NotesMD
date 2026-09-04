@@ -36,6 +36,8 @@ final class AppState: ObservableObject {
     private var timer: Timer?
     private var lastBodyStamp = ""
     private var lastIndexAt: Date?
+    private var lastPeekAt = Date.distantPast
+    private var lastPermissionCheck = Date.distantPast
 
     var showsFollowUI: Bool {
         notesRunning
@@ -65,19 +67,14 @@ final class AppState: ObservableObject {
         hotkeys.capturingKeys = { [weak self] in self?.isCapturingKeys == true }
         hotkeys.start()
 
-        typing.onStatus = { [weak self] message in
-            self?.status = message
-        }
         typing.onPalette = { [weak self] in self?.togglePalette() }
         typing.onSlash = { [weak self] in self?.toggleSlash() }
         typing.onToolbar = { [weak self] in self?.toolbarVisible.toggle() }
         typing.onQuickOpen = { [weak self] in self?.toggleQuickOpen() }
-        typing.capturingKeys = { [weak self] in
-            self?.isCapturingKeys == true
-        }
         typing.start()
+        syncInputFlags()
 
-        timer = Timer.scheduledTimer(withTimeInterval: 0.18, repeats: true) { [weak self] _ in
+        timer = Timer.scheduledTimer(withTimeInterval: 0.4, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 self?.tick()
             }
@@ -117,10 +114,16 @@ final class AppState: ObservableObject {
     }
 
     func tick() {
-        refreshPermissions()
+        let now = Date()
         notesRunning = NotesBridge.isRunning
         notesFrontmost = NSWorkspace.shared.frontmostApplication?.bundleIdentifier == NotesBridge.bundleID
             || NSWorkspace.shared.frontmostApplication?.bundleIdentifier == Bundle.main.bundleIdentifier
+        syncInputFlags()
+
+        if now.timeIntervalSince(lastPermissionCheck) > 5 {
+            lastPermissionCheck = now
+            refreshPermissions()
+        }
 
         guard notesRunning else {
             currentNote = nil
@@ -131,21 +134,29 @@ final class AppState: ObservableObject {
             return
         }
 
+        if typing.isTyping && !isCapturingKeys {
+            return
+        }
+
         if accessibilityTrusted {
             AXBridge.enableEnhancedAccessibility()
-            if !typing.isBusy {
-                selectedText = AXBridge.selectedText()
+            let selected = AXBridge.selectedTextQuick()
+            selectedText = selected
+            if selected.isEmpty {
+                selectionBounds = nil
+                caretAnchor = nil
+            } else {
                 selectionBounds = AXBridge.selectionBounds()
-                caretAnchor = AXBridge.caretAnchor()
             }
         }
+
+        guard now.timeIntervalSince(lastPeekAt) > 1.8 else { return }
+        lastPeekAt = now
 
         do {
             let note = try NotesBridge.peekSelection()
             currentNote = note
-            if !typing.isBusy {
-                status = "\(note.folder) · \(note.name)"
-            }
+            status = "\(note.folder) · \(note.name)"
             if (previewVisible || tocVisible), lastBodyStamp != note.id + note.modified {
                 lastBodyStamp = note.id + note.modified
                 if previewVisible { refreshPreview() }
@@ -161,6 +172,11 @@ final class AppState: ObservableObject {
         }
     }
 
+    func syncInputFlags() {
+        typing.setPaletteCapturing(isCapturingKeys)
+        typing.setNotesFrontmost(notesFrontmost)
+    }
+
     func togglePalette() {
         paletteVisible.toggle()
         if paletteVisible {
@@ -168,6 +184,7 @@ final class AppState: ObservableObject {
             quickOpenVisible = false
             NSApp.activate()
         }
+        syncInputFlags()
     }
 
     func toggleQuickOpen() {
@@ -178,11 +195,13 @@ final class AppState: ObservableObject {
             NSApp.activate()
             refreshNoteIndexIfNeeded()
         }
+        syncInputFlags()
     }
 
     func toggleSlash() {
         if slashVisible {
             slashVisible = false
+            syncInputFlags()
             return
         }
         openSlash(query: "", consumeTypedSlash: false)
@@ -195,6 +214,7 @@ final class AppState: ObservableObject {
         paletteVisible = false
         quickOpenVisible = false
         NSApp.activate()
+        syncInputFlags()
     }
 
     func applyParagraph(_ style: NativeParagraphStyle) {
@@ -239,10 +259,12 @@ final class AppState: ObservableObject {
             tocVisible = true
             refreshTOC()
         }
+        syncInputFlags()
     }
 
     func runSlash(_ command: SlashCommand) {
         slashVisible = false
+        syncInputFlags()
         consumeSlashToken()
         lastAction = command.title
         switch command.kind {

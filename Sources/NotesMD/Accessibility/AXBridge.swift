@@ -57,12 +57,13 @@ enum AXBridge {
     }
 
     static func selectedText() -> String {
-        if let focused = focusedElement(),
-           let text = stringAttribute(focused, kAXSelectedTextAttribute as String),
-           !text.isEmpty {
-            return text
-        }
-        return selectedTextByWalk()
+        selectedTextQuick()
+    }
+
+    /// Focused element only. Do not walk the AX tree on a timer.
+    static func selectedTextQuick() -> String {
+        guard let focused = focusedElement() else { return "" }
+        return stringAttribute(focused, kAXSelectedTextAttribute as String) ?? ""
     }
 
     static func replaceSelectedText(_ text: String) -> Bool {
@@ -75,27 +76,16 @@ enum AXBridge {
         return status == .success
     }
 
-    static func selectedTextByWalk() -> String {
-        guard let app = notesElement() else { return "" }
-        var stack = children(app)
-        var seen = 0
-        while let el = stack.popLast(), seen < 400 {
-            seen += 1
-            if let text = stringAttribute(el, kAXSelectedTextAttribute as String), !text.isEmpty {
-                return text
-            }
-            stack.append(contentsOf: children(el))
-        }
-        return ""
-    }
+    private static var didEnableEnhanced = false
 
     static func enableEnhancedAccessibility() {
-        guard let app = notesElement() else { return }
+        guard !didEnableEnhanced, let app = notesElement() else { return }
         AXUIElementSetAttributeValue(
             app,
             "AXEnhancedUserInterface" as CFString,
             kCFBooleanTrue
         )
+        didEnableEnhanced = true
     }
 
     static func isSearchField(_ element: AXUIElement) -> Bool {
