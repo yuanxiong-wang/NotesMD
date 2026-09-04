@@ -208,12 +208,24 @@ enum NotesBridge {
         notes.filter { $0.folder == "Templates" || $0.folder == "模板" }
     }
 
-    static func convertWholeNoteFromMarkdown(_ note: NoteRef) throws {
+    struct MarkdownConversion {
+        var source: String
+        var html: String
+        var preview: String
+    }
+
+    static func prepareWholeNoteConversion(_ note: NoteRef) throws -> MarkdownConversion {
         if note.passwordProtected { throw NotesBridgeError.locked }
         if note.attachmentCount > 0 { throw NotesBridgeError.hasAttachments }
-        let text = try plaintext(of: note.id)
-        let html = NotesMarkdown.markdownToHTML(text)
-        try setBody(id: note.id, html: html)
+        let source = try plaintext(of: note.id)
+        let html = NotesMarkdown.markdownToHTML(source)
+        let preview = NotesMarkdown.htmlToMarkdown(html)
+        return MarkdownConversion(source: source, html: html, preview: preview)
+    }
+
+    static func convertWholeNoteFromMarkdown(_ note: NoteRef) throws {
+        let prepared = try prepareWholeNoteConversion(note)
+        try setBody(id: note.id, html: prepared.html)
     }
 
     private static func runScript(_ source: String, timeout: TimeInterval = 8) throws -> String {

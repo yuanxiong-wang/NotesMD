@@ -188,11 +188,13 @@ enum HTMLMarkdownRenderer {
                     let src = attrs["src"] ?? ""
                     out += "![\(alt)](\(src))"
                 case "table":
+                    if !out.isEmpty && !out.hasSuffix("\n") { out += "\n" }
+                    let (md, next) = markdownTable(from: tokens, insideStart: index)
+                    out += md
                     if !out.hasSuffix("\n") { out += "\n" }
-                case "tr":
-                    out += "|"
-                case "th", "td":
-                    out += " "
+                    index = next
+                case "tr", "th", "td", "thead", "tbody", "tfoot", "caption", "colgroup", "col":
+                    break
                 case "html", "body", "span", "font", "object":
                     break
                 default:
@@ -232,10 +234,6 @@ enum HTMLMarkdownRenderer {
                     if let href = hrefBeforeClose(tokens, closeIndex: index - 1) {
                         out += "(\(href))"
                     }
-                case "th", "td":
-                    out += " |"
-                case "tr":
-                    out += "\n"
                 default:
                     break
                 }
@@ -248,6 +246,148 @@ enum HTMLMarkdownRenderer {
         }
 
         return tidy(out)
+    }
+
+    /// Consume a Notes/HTML table as a GFM table, flattening cell internals to one line.
+    private static func markdownTable(from tokens: [HTMLToken], insideStart: Int) -> (String, Int) {
+        var i = insideStart
+        var depth = 1
+        var rows: [[String]] = []
+        var currentRow: [String]?
+        var caption = ""
+
+        while i < tokens.count && depth > 0 {
+            switch tokens[i] {
+            case .open(let name, _) where name == "table":
+                depth += 1
+                i += 1
+            case .close(let name) where name == "table":
+                depth -= 1
+                i += 1
+            case .open(let name, _) where name == "tr" && depth == 1:
+                currentRow = []
+                i += 1
+            case .close(let name) where name == "tr" && depth == 1:
+                if let row = currentRow { rows.append(row) }
+                currentRow = nil
+                i += 1
+            case .open(let name, _) where (name == "td" || name == "th") && depth == 1:
+                let (inner, next) = sliceUntilClose(tokens, openAt: i)
+                if currentRow == nil { currentRow = [] }
+                currentRow?.append(cellMarkdown(inner))
+                i = next
+            case .open(let name, _) where name == "caption" && depth == 1:
+                let (inner, next) = sliceUntilClose(tokens, openAt: i)
+                caption = cellMarkdown(inner)
+                i = next
+            default:
+                i += 1
+            }
+        }
+
+        var lines: [String] = []
+        if !caption.isEmpty {
+            lines.append(caption)
+        }
+        lines.append(contentsOf: gfmLines(from: rows))
+        return (lines.joined(separator: "\n"), i)
+    }
+
+    private static func sliceUntilClose(_ tokens: [HTMLToken], openAt: Int) -> ([HTMLToken], Int) {
+        guard case .open(let openName, _) = tokens[openAt] else {
+            return ([], openAt + 1)
+        }
+        var i = openAt + 1
+        var depth = 1
+        var inner: [HTMLToken] = []
+        while i < tokens.count && depth > 0 {
+            switch tokens[i] {
+            case .open(let name, _) where name == openName:
+                depth += 1
+                inner.append(tokens[i])
+            case .close(let name) where name == openName:
+                depth -= 1
+                if depth > 0 { inner.append(tokens[i]) }
+            default:
+                inner.append(tokens[i])
+            }
+            i += 1
+        }
+        return (inner, i)
+    }
+
+    private static func cellMarkdown(_ tokens: [HTMLToken]) -> String {
+        var out = ""
+        for (offset, token) in tokens.enumerated() {
+            switch token {
+            case .text(let text):
+                out += text
+                    .replacingOccurrences(of: "\n", with: " ")
+                    .replacingOccurrences(of: "|", with: "\\|")
+            case .open(let name, let attrs):
+                switch name {
+                case "br":
+                    out += " "
+                case "b", "strong":
+                    out += "**"
+                case "i", "em":
+                    out += "*"
+                case "code":
+                    out += "`"
+                case "strike", "s", "del":
+                    out += "~~"
+                case "mark":
+                    out += "=="
+                case "a":
+                    out += "["
+                case "img":
+                    let alt = attrs["alt"] ?? ""
+                    let src = attrs["src"] ?? ""
+                    out += "![\(alt)](\(src))"
+                default:
+                    out += " "
+                }
+            case .close(let name):
+                switch name {
+                case "b", "strong":
+                    out += "**"
+                case "i", "em":
+                    out += "*"
+                case "code":
+                    out += "`"
+                case "strike", "s", "del":
+                    out += "~~"
+                case "mark":
+                    out += "=="
+                case "a":
+                    out += "]"
+                    if let href = hrefBeforeClose(tokens, closeIndex: offset) {
+                        out += "(\(href))"
+                    }
+                default:
+                    break
+                }
+            }
+        }
+        return out.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+    }
+
+    private static func gfmLines(from rows: [[String]]) -> [String] {
+        guard !rows.isEmpty else { return [] }
+        let width = rows.map(\.count).max() ?? 0
+        guard width > 0 else { return [] }
+        func padded(_ row: [String]) -> [String] {
+            row + Array(repeating: "", count: max(0, width - row.count))
+        }
+        var lines: [String] = []
+        for (index, row) in rows.enumerated() {
+            let cells = padded(row)
+            lines.append("| " + cells.joined(separator: " | ") + " |")
+            if index == 0 {
+                lines.append("| " + Array(repeating: "---", count: width).joined(separator: " | ") + " |")
+            }
+        }
+        return lines
     }
 
     private static func headingPrefix(_ level: Int) -> String {

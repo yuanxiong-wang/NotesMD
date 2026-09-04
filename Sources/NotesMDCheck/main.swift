@@ -57,6 +57,32 @@ enum NotesMDCheck {
         let outline = MarkdownTyping.headings(inHTML: "<div><h1>A</h1></div><div><h2>B</h2></div>")
         expect("toc", outline.map(\.text) == ["A", "B"] && outline.map(\.level) == [1, 2], "\(outline)")
 
+        let tableMD = """
+        | Name | Qty |
+        | --- | --- |
+        | Apples | 3 |
+        | Pears | 2 |
+        """
+        let tableHTML = NotesMarkdown.markdownToHTML(tableMD)
+        expect("md table html", tableHTML.contains("<table>") && tableHTML.contains("<th>Name</th>") && tableHTML.contains("<td>Apples</td>"), tableHTML)
+        let tableBack = NotesMarkdown.htmlToMarkdown(tableHTML)
+        expect("table round-trip header", tableBack.contains("| Name | Qty |"), tableBack)
+        expect("table round-trip sep", tableBack.contains("| --- | --- |"), tableBack)
+        expect("table round-trip rows", tableBack.contains("| Apples | 3 |") && tableBack.contains("| Pears | 2 |"), tableBack)
+
+        let notesTable = """
+        <div><table>
+        <tr><td><div>Name</div></td><td><div>Qty</div></td></tr>
+        <tr><td><div>Apples</div></td><td><div><b>3</b></div></td></tr>
+        </table></div>
+        """
+        let fromNotes = NotesMarkdown.htmlToMarkdown(notesTable)
+        expect("notes table header", fromNotes.contains("| Name | Qty |"), fromNotes)
+        expect("notes table sep", fromNotes.contains("| --- | --- |"), fromNotes)
+        expect("notes table cell", fromNotes.contains("| Apples | **3** |"), fromNotes)
+        let notesRound = NotesMarkdown.htmlToMarkdown(NotesMarkdown.markdownToHTML(fromNotes))
+        expect("notes table round-trip", notesRound.contains("| Name | Qty |") && notesRound.contains("| Apples | **3** |"), notesRound)
+
         if failed == 0 {
             print("All checks passed.")
         } else {

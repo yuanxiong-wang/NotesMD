@@ -308,7 +308,17 @@ final class AppState: ObservableObject {
             return
         }
         do {
-            try NotesBridge.convertWholeNoteFromMarkdown(note)
+            let prepared = try NotesBridge.prepareWholeNoteConversion(note)
+            let proceed = ConvertConfirm.confirmReplace(
+                noteName: note.name,
+                current: prepared.source,
+                after: prepared.preview
+            )
+            guard proceed else {
+                status = "Conversion cancelled"
+                return
+            }
+            try NotesBridge.setBody(id: note.id, html: prepared.html)
             status = "Converted note from Markdown"
         } catch {
             present(error)
