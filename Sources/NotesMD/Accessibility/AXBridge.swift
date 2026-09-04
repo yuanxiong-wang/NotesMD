@@ -25,7 +25,16 @@ enum AXBridge {
     }
 
     static func children(_ element: AXUIElement) -> [AXUIElement] {
-        attribute(element, kAXChildrenAttribute as String) as? [AXUIElement] ?? []
+        guard let values = attribute(element, kAXChildrenAttribute as String) as? [AnyObject] else {
+            return []
+        }
+        return values.compactMap(Self.asElement)
+    }
+
+    private static func asElement(_ raw: AnyObject?) -> AXUIElement? {
+        guard let raw else { return nil }
+        guard CFGetTypeID(raw) == AXUIElementGetTypeID() else { return nil }
+        return unsafeBitCast(raw, to: AXUIElement.self)
     }
 
     static func role(_ element: AXUIElement) -> String {
@@ -44,7 +53,7 @@ enum AXBridge {
 
     static func focusedElement() -> AXUIElement? {
         guard let app = notesElement() else { return nil }
-        return attribute(app, kAXFocusedUIElementAttribute as String).map { $0 as! AXUIElement }
+        return asElement(attribute(app, kAXFocusedUIElementAttribute as String))
     }
 
     static func selectedText() -> String {
@@ -131,8 +140,8 @@ enum AXBridge {
 
     static func editorFrame() -> CGRect? {
         guard let app = notesElement() else { return nil }
-        let window: AXUIElement? = attribute(app, kAXFocusedWindowAttribute as String).map { $0 as! AXUIElement }
-            ?? (attribute(app, kAXWindowsAttribute as String) as? [AXUIElement])?.first
+        let window: AXUIElement? = asElement(attribute(app, kAXFocusedWindowAttribute as String))
+            ?? (attribute(app, kAXWindowsAttribute as String) as? [AnyObject])?.compactMap(Self.asElement).first
         guard let window else { return nil }
 
         var best: CGRect?
@@ -244,7 +253,7 @@ enum AXBridge {
 
     static func clickMenu(path aliases: [[String]]) -> Bool {
         guard let app = notesElement() else { return false }
-        guard let menuBar = attribute(app, kAXMenuBarAttribute as String).map({ $0 as! AXUIElement }) else {
+        guard let menuBar = asElement(attribute(app, kAXMenuBarAttribute as String)) else {
             return false
         }
         return click(from: menuBar, remaining: aliases)

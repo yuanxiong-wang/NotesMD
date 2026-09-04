@@ -79,7 +79,7 @@ Quit NotesMD and delete `NotesMD.app`. Existing notes are untouched.
 
 - `Sources/NotesMDCore` — Markdown ↔ Notes HTML, command planner
 - `Sources/NotesMD` — overlay UI, Accessibility, Apple Events
-- `Sources/NotesMDCheck` — lightweight self-checks run by `make test`
+- `Sources/NotesMDCheck` — small command-line checks for the Markdown converter (`make test`). There is no XCTest `Tests/` directory.
 
 ```bash
 make test

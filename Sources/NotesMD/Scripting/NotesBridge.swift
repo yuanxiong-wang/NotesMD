@@ -132,8 +132,13 @@ enum NotesBridge {
 
     static func setBody(id: String, html: String) throws {
         let dir = FileManager.default.temporaryDirectory
-        let htmlURL = dir.appendingPathComponent("notesmd-body.html")
-        let scriptURL = dir.appendingPathComponent("notesmd-setbody.scpt.txt")
+        let token = UUID().uuidString
+        let htmlURL = dir.appendingPathComponent("notesmd-body-\(token).html")
+        let scriptURL = dir.appendingPathComponent("notesmd-setbody-\(token).scpt.txt")
+        defer {
+            try? FileManager.default.removeItem(at: htmlURL)
+            try? FileManager.default.removeItem(at: scriptURL)
+        }
         try html.write(to: htmlURL, atomically: true, encoding: .utf8)
         let script = """
         set htmlPath to "\(escapeAS(htmlURL.path))"

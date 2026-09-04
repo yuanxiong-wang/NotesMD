@@ -246,7 +246,6 @@ public enum NotesMarkdown {
                 }
                 let cells = t.split(separator: "|", omittingEmptySubsequences: false)
                     .map { $0.trimmingCharacters(in: .whitespaces) }
-                    .filter { !$0.isEmpty || true }
                 let trimmedCells = Array(cells.drop(while: { $0.isEmpty }))
                     .reversed()
                     .drop(while: { $0.isEmpty })
